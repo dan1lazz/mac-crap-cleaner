@@ -207,7 +207,12 @@ def main() -> int:
                 except OSError:
                     pass
                 raise
-        if name in ("orphans-down", "orphans-up"):
+        if name == "orphans-scan":
+            # На реальном Mac построение реестра (mdfind+ps+plist) занимает
+            # десятки секунд — ждём нарисованный итог, а не фикс. паузу
+            frames[name] = drain_until(fd, "СИРОТА".encode("utf-8"), 60.0,
+                                       settle=1.0)
+        elif name in ("orphans-down", "orphans-up"):
             # ждём именно кадр с курсором (инверсная строка), а не фикс. паузу
             frames[name] = drain_until(fd, b"\x1b[7m", 8.0)
         else:
