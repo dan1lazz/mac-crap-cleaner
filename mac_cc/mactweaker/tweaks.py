@@ -329,12 +329,40 @@ def export_defaults(paths: Paths) -> Tuple[bool, str]:
     except OSError:
         return False, f"не удалось создать {d}"
     out_file = d / f"defaults-{time.strftime('%Y%m%d-%H%M%S')}.plist"
-    code, out = run(["defaults", "export", str(out_file), "-all"], timeout=120)
-    if code == 0 and safe_exists(out_file):
-        size = out_file.stat().st_size
-        return True, tr("сохранено {path} ({size} КБ)").format(
-            path=paths.short(out_file), size=size // 1024)
-    return False, tr("ошибка экспорта: {err}").format(err=out[:120])
+    # `defaults export -all` на реальной macOS молча пишет пустой plist,
+    # а экспорт 300+ доменов через subprocess медленный — поэтому читаем
+    # plist-файлы прямо из ~/Library/Preferences и собираем единый бэкап.
+    import plistlib
+    prefs = paths.lib / "Preferences"
+    data: Dict[str, object] = {}
+    try:
+        entries = sorted(prefs.rglob("*.plist"))
+    except OSError:
+        entries = []
+    for f in entries:
+        try:
+            with open(f, "rb") as fh:
+                data[str(f.relative_to(prefs))] = plistlib.load(fh)
+        except Exception:                           # noqa: BLE001
+            continue
+    if not data:
+        # минимальный фолбэк: хотя бы глобальный домен через defaults
+        code, out = run(["defaults", "export", "NSGlobalDomain",
+                         str(out_file)], timeout=60)
+        if code == 0 and safe_exists(out_file):
+            size = out_file.stat().st_size
+            return True, tr("сохранено {path} ({size} КБ)").format(
+                path=paths.short(out_file), size=size // 1024)
+        return False, tr("ошибка экспорта: {err}").format(
+            err=(out or "")[:120])
+    try:
+        with open(out_file, "wb") as fh:
+            plistlib.dump(data, fh)
+    except OSError as exc:
+        return False, tr("ошибка экспорта: {err}").format(err=str(exc)[:120])
+    size = out_file.stat().st_size
+    return True, tr("сохранено {path} ({size} КБ)").format(
+        path=paths.short(out_file), size=size // 1024)
 
 
 def list_backups(paths: Paths) -> List[Path]:

@@ -93,6 +93,13 @@ def _deleter(paths: Paths, args, hard: bool = False) -> Deleter:
 
 def cmd_info(args) -> int:
     paths = _get_paths(args)
+    try:
+        # При выводе в pipe Python буферизует блоками: без этого `maccc info`
+        # выглядит зависшим, пока считаются размеры каталогов дома (на живом
+        # Mac это минуты).
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, OSError, ValueError):
+        pass
     si = system.collect(paths)
     _print_head(tr(" Система ").strip(), detect_theme(args.ascii, args.no_color))
     for ln in si.summary_lines():

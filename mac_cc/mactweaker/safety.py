@@ -563,7 +563,10 @@ def is_root() -> bool:
 
 
 def sudo_ok(non_interactive: bool = True) -> bool:
-    code, _ = run(["sudo", "-n", "true"] if non_interactive else ["sudo", "-v"])
+    cmd = ["sudo", "-n", "true"] if non_interactive else ["sudo", "-v"]
+    # Дефолтный таймаут run() — 900 с; для неотзывчивой проверки sudo -n
+    # хватает 15 с. Интерактивному `sudo -v` оставляем запас на ввод пароля.
+    code, _ = run(cmd, timeout=15 if non_interactive else 900)
     return code == 0
 
 
