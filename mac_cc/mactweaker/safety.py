@@ -179,80 +179,71 @@ def needs_root(path: Path) -> bool:
 #  Размеры и формат
 # --------------------------------------------------------------------------- #
 
-def dir_size(path, follow_symlinks: bool = False, budget: int = 400000) -> Tuple[int, int]:
-    """(байты, число файлов). Не следует за симлинками, не падает на SIP-путях."""
+def tree_stats(path, follow_symlinks: bool = False,
+               budget: int = 400000) -> Tuple[int, int, float]:
+    """(байты, число файлов, самая свежая mtime) за ОДИН проход по дереву.
+
+    Раньше размер и mtime считались двумя отдельными обходами (dir_size +
+    newest_mtime) — каждый найденный каталог обходился по дереву дважды.
+    Теперь всё собирается в одном проходе.
+
+    Защита от циклов — через (st_dev, st_ino) из stat-записи каталога: это
+    тот же ключ, что давал realpath(), но без лишнего syscall на каждый
+    каталог. Не следует за симлинками, не падает на SIP/DataVault-путях.
+    """
     p = Path(path)
     st = safe_lstat(p)
     if st is None:
-        return 0, 0
+        return 0, 0, 0.0
     if stat_module.S_ISLNK(st.st_mode):
-        return 0, 1
+        return 0, 1, st.st_mtime
     if stat_module.S_ISREG(st.st_mode):
-        return st.st_size, 1
+        return st.st_size, 1, st.st_mtime
     if not stat_module.S_ISDIR(st.st_mode):
-        return 0, 0
+        return 0, 0, st.st_mtime
 
     total = 0
     count = 0
-    seen: set = set()
+    latest = st.st_mtime
+    seen: set = {(st.st_dev, st.st_ino)}
     stack = [p]
     while stack and budget > 0:
         cur = stack.pop()
-        try:
-            real = os.path.realpath(cur)
-        except OSError:
-            continue
-        if real in seen:
-            continue
-        seen.add(real)
         for e in safe_scandir(cur):
             budget -= 1
             if budget <= 0:
                 break
             try:
-                if e.is_symlink():
-                    count += 1
-                    continue
-                if e.is_dir(follow_symlinks=follow_symlinks):
-                    stack.append(Path(e.path))
-                else:
-                    total += e.stat(follow_symlinks=follow_symlinks).st_size
-                    count += 1
+                est = e.stat(follow_symlinks=follow_symlinks)
             except OSError:
                 continue
-    return total, count
+            key = (est.st_dev, est.st_ino)
+            if key in seen:
+                continue
+            seen.add(key)
+            if stat_module.S_ISDIR(est.st_mode):
+                if est.st_mtime > latest:
+                    latest = est.st_mtime
+                stack.append(Path(e.path))
+            elif stat_module.S_ISREG(est.st_mode):
+                total += est.st_size
+                count += 1
+                if est.st_mtime > latest:
+                    latest = est.st_mtime
+            else:
+                count += 1   # symlink/fifo/socket — учитываем как файл-макет
+    return total, count, latest
 
 
-def newest_mtime(path) -> float:
+def dir_size(path, follow_symlinks: bool = False, budget: int = 400000) -> Tuple[int, int]:
+    """(байты, число файлов). Не следует за симлинками, не падает на SIP-путях."""
+    size, count, _ = tree_stats(path, follow_symlinks, budget)
+    return size, count
+
+
+def newest_mtime(path, budget: int = 20000) -> float:
     """Самая свежая mtime внутри дерева (для оценки «давно не использовалось»)."""
-    p = Path(path)
-    st = safe_lstat(p)
-    latest = st.st_mtime if st else 0.0
-    stack = [p]
-    budget = 20000
-    seen: set = set()
-    while stack and budget > 0:
-        cur = stack.pop()
-        try:
-            real = os.path.realpath(cur)
-        except OSError:
-            continue
-        if real in seen:
-            continue
-        seen.add(real)
-        for e in safe_scandir(cur):
-            budget -= 1
-            try:
-                if e.is_symlink():
-                    continue
-                if e.is_dir(follow_symlinks=False):
-                    stack.append(Path(e.path))
-                    continue
-                mt = e.stat(follow_symlinks=False).st_mtime
-                if mt > latest:
-                    latest = mt
-            except OSError:
-                continue
+    _, _, latest = tree_stats(path, False, budget)
     return latest
 
 
@@ -367,8 +358,13 @@ class Paths:
         return self.home / ".mac_tweaker"
 
     def protected_prefixes(self) -> Tuple[str, ...]:
+        # кэшируем: is_safe()/is_traversable() дергают этот метод на каждый
+        # кандидат при сканировании, а набор путей у объекта Paths неизменен
+        cached = getattr(self, "_protected_cache", None)
+        if cached is not None:
+            return cached
         h, lib, sr = self.home, self.lib, self.sysroot
-        return tuple(str(p) for p in (
+        cached = tuple(str(p) for p in (
             h / "Documents", h / "Desktop", h / "Pictures", h / "Music",
             h / "Movies", h / "Public", h / "Sites",
             lib / "Application Support", lib / "Containers",
@@ -382,14 +378,21 @@ class Paths:
             sr / "Users" / "Shared", sr / "Library" / "Keychains",
             self.state_dir,
         ))
+        self._protected_cache = cached
+        return cached
 
     def forbidden_exact(self) -> frozenset:
+        cached = getattr(self, "_forbidden_cache", None)
+        if cached is not None:
+            return cached
         h, lib = self.home, self.lib
-        return frozenset({
+        cached = frozenset({
             "", "/", str(h), str(lib), str(h / "Library"),
             str(h / ".Trash"), str(lib / "Caches"), str(lib / "Logs"),
             str(self.sysroot / "Library"), str(self.sysroot / "Library" / "Caches"),
         })
+        self._forbidden_cache = cached
+        return cached
 
     def short(self, p) -> str:
         s = str(p)
@@ -446,11 +449,26 @@ def _protected_allowed(s: str) -> bool:
     return any(fnmatch.fnmatch(s, pat) for pat in PROTECTED_ALLOW_GLOBS)
 
 
+def _abspath_fast(p) -> Optional[str]:
+    """abspath+expanduser без лишних системных вызовов.
+
+    Сканеры всегда передают уже абсолютные нормализованные пути (scandir/glob),
+    поэтому для них обходится одна строковая normpath вместо expanduser
+    (поиск по окружению) и abspath (getcwd + join).
+    """
+    s = str(p)
+    try:
+        if s.startswith("/") and not s.startswith("//"):
+            return os.path.normpath(s)
+        return os.path.abspath(os.path.expanduser(s))
+    except (OSError, ValueError):
+        return None
+
+
 def is_safe(p, paths: Paths) -> bool:
     """Главный предохранитель: можно ли вообще трогать этот путь."""
-    try:
-        s = str(Path(os.path.abspath(os.path.expanduser(str(p)))))
-    except (OSError, ValueError):
+    s = _abspath_fast(p)
+    if s is None:
         return False
 
     if s.rstrip("/") in paths.forbidden_exact():
@@ -476,9 +494,8 @@ NO_TRAVERSE = ("Documents", "Pictures", "Music", "Movies", "Public", "Sites",
 
 def is_traversable(p, paths: Paths) -> bool:
     """Можно ли ЗАЙТИ в каталог при сканировании (не то же, что удалить)."""
-    try:
-        s = str(Path(os.path.abspath(os.path.expanduser(str(p)))))
-    except (OSError, ValueError):
+    s = _abspath_fast(p)
+    if s is None:
         return False
     if s.rstrip("/") in paths.forbidden_exact():
         return False
