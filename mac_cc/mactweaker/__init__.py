@@ -15,6 +15,6 @@ Mac Crap Cleaner (MacCC) — псевдографический инструме
     cli        субкоманды для запуска без интерфейса
 """
 
-__version__ = "2.2.1"
+__version__ = "2.2.2"
 __all__ = ["safety", "osprofile", "system", "junk", "leftovers", "startup",
            "schedule", "tweaks", "ui", "app", "cli", "__version__"]

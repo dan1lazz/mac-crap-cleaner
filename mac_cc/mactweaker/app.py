@@ -25,7 +25,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from . import junk, leftovers, osprofile, schedule, startup, system, tweaks
 from .i18n import APP_SHORT, APP_TITLE, get_lang, set_lang, tr
-from .safety import (Deleter, Journal, Paths, ago, dir_size, human,
+from .safety import (Deleter, Journal, Paths, ago, human,
                      permission_warnings, reset_denied, run, safe_scandir,
                      sudo_ok)
 from .ui import (Dialog, Key, ListView, Painter, RenderContext, Row, Screen,
@@ -1860,20 +1860,48 @@ class DiskScreen(Screen):
 
 def _dir_sizes(root: Path, limit: int = 200,
                tick=None) -> List[Tuple[Path, int, bool]]:
-    out: List[Tuple[Path, int, bool]] = []
-    entries = safe_scandir(root)
-    for i, e in enumerate(entries):
-        if tick:
-            tick(i, len(entries), e.name)
+    """Размеры элементов каталога.
+
+    Подкаталоги меряются ПАРАЛЛЕЛЬНО (ThreadPoolExecutor): раньше обход был
+    последовательным и на холодном дисковом кэше экран «Анализ диска» надолго
+    замирал на первом большом каталоге (Library, Pictures…). Один проход
+    tree_stats на подкаталог — размер за одну ходку по дереву.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from .safety import tree_stats, workers
+
+    entries: List[Tuple[Path, bool, int]] = []
+    for e in safe_scandir(root):
         try:
-            p = Path(e.path)
             if e.is_symlink():
                 continue
             isdir = e.is_dir(follow_symlinks=False)
-            size = dir_size(p)[0] if isdir else e.stat().st_size
-            out.append((p, size, isdir))
+            fsize = 0 if isdir else e.stat(follow_symlinks=False).st_size
+            entries.append((Path(e.path), isdir, fsize))
         except OSError:
             continue
+
+    def measure(item: Tuple[Path, bool, int]) -> Tuple[Path, int, bool]:
+        p, isdir, fsize = item
+        try:
+            size = tree_stats(p)[0] if isdir else fsize
+        except OSError:
+            size = 0
+        return (p, size, isdir)
+
+    out: List[Tuple[Path, int, bool]] = []
+    n = max(1, min(workers(), len(entries) or 1))
+    if n <= 1:
+        for i, item in enumerate(entries):
+            if tick:
+                tick(i, len(entries), item[0].name)
+            out.append(measure(item))
+    else:
+        with ThreadPoolExecutor(max_workers=n) as ex:
+            for i, res in enumerate(ex.map(measure, entries)):
+                if tick:
+                    tick(i, len(entries), res[0].name)
+                out.append(res)
     out.sort(key=lambda x: -x[1])
     return out[:limit]
 
