@@ -1,0 +1,56 @@
+name: Release
+
+# Собирает .app и бандл и оформляет GitHub-релиз при пуше тега вида 2.2.1.
+# Заметки релиза берутся из секции тега в CHANGELOG.md.
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Проверить, что тег совпадает с __version__
+        run: |
+          TAG="${{ github.ref_name }}"
+          VER=$(python3 -c "import sys; sys.path.insert(0, 'mac_cc'); \
+              from mactweaker import __version__; print(__version__)")
+          echo "tag=$TAG version=$VER"
+          [ "$TAG" = "$VER" ] || { echo "::error::тег $TAG != __version__ $VER"; exit 1; }
+
+      - name: Прогнать тесты (346 проверок)
+        working-directory: mac_cc
+        run: python3 tests/test_all.py
+
+      - name: Собрать бандл и .app
+        working-directory: mac_cc
+        run: python3 build_app.py    # бандл собирается автоматически
+
+      - name: Вытащить заметки релиза из CHANGELOG.md
+        run: |
+          python3 - <<'PY'
+          import os, re
+          tag = os.environ["GITHUB_REF_NAME"]
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(r"## \[%s\][^\n]*\n(.*?)(?=\n## \[|\Z)" % re.escape(tag),
+                        text, re.S)
+          notes = m.group(1).strip() if m else \
+              "Изменения описаны в [CHANGELOG.md](CHANGELOG.md)."
+          open("RELEASE_NOTES.md", "w", encoding="utf-8").write(notes + "\n")
+          PY
+
+      - name: Создать релиз и прикрепить файлы
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MacCC ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          files: |
+            mac_cc/dist/Mac-Crap-Cleaner-app.zip
+            mac_cc/dist/maccc_bundle.py
