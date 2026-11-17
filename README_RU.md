@@ -1,6 +1,20 @@
-# Mac Crap Cleaner (MacCC)
+<div align="center">
 
-> Mac Crap Cleaner - Less crap. Zero subscriptions. No bullshit.
+# 🧹 Mac Crap Cleaner (MacCC)
+
+**Less crap. Zero subscriptions. No bullshit.**
+
+[![GitHub release](https://img.shields.io/github/v/release/dan1lazz/mac-crap-cleaner?display_name=tag)](https://github.com/dan1lazz/mac-crap-cleaner/releases)
+[![macOS 11+](https://img.shields.io/badge/macOS-11%2B-000000?logo=apple&logoColor=white)](#совместимость-с-версиями-macos)
+[![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](#быстрый-старт)
+[![зависимости: 0](https://img.shields.io/badge/зависимости-0-brightgreen)](#быстрый-старт)
+[![лицензия: MIT](https://img.shields.io/badge/лицензия-MIT-green)](LICENSE)
+
+### 🌐 &nbsp;[English](README.md)&nbsp; · &nbsp;**Русский**
+
+**[⬇️ Скачать приложение](https://github.com/dan1lazz/mac-crap-cleaner/releases/latest)** — распаковать, двойной клик, готово. Без Терминала и без `python3`.
+
+</div>
 
 Псевдографический инструмент обслуживания macOS в терминале: очистка кэшей,
 поиск «сирот» от удалённых программ, глубокий скан раскиданного хлама,
@@ -114,9 +128,20 @@ Select [1/2]:
 
 ## Быстрый старт
 
-### Вариант 1 — один файл (рекомендуется)
+### Вариант 0 — приложение .app (вообще без Терминала)
 
-Скачайте **`dist/maccc_bundle.py`** (109 КБ, все модули внутри) и запустите:
+Скачайте **`Mac-Crap-Cleaner-app.zip`** из
+[последнего релиза](https://github.com/dan1lazz/mac-crap-cleaner/releases/latest),
+распакуйте и дважды кликните **Mac Crap Cleaner.app** — откроется готовое окно
+Терминала с интерфейсом. Если Gatekeeper ругнётся на неподписанное приложение:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Mac Crap Cleaner.app"
+```
+
+### Вариант 1 — один файл
+
+Скачайте **`dist/maccc_bundle.py`** (176 КБ, все модули внутри) и запустите:
 
 ```bash
 chmod +x maccc_bundle.py
@@ -126,7 +151,7 @@ python3 maccc_bundle.py
 ### Вариант 2 — проект целиком
 
 ```bash
-cd mac_tweaker
+cd mac_cc
 python3 maccc.py
 ```
 
@@ -140,7 +165,7 @@ echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 maccc
 ```
 
-Проверка: `maccc --version` → `maccc 2.1.0`.
+Проверка: `maccc --version` → `maccc 2.2.1`.
 
 ---
 
@@ -453,7 +478,7 @@ python3 maccc.py clean --profile dev --dangerous -y
 ## Разработка и тесты
 
 ```bash
-cd mac_tweaker
+cd mac_cc
 
 # 1. создать тестовый стенд (фейковое дерево macOS)
 bash tests/make_fake_home.sh /tmp/fake_mac

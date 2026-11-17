@@ -1,6 +1,20 @@
-# Mac Crap Cleaner (MacCC)
+<div align="center">
 
-> Mac Crap Cleaner - Less crap. Zero subscriptions. No bullshit.
+# 🧹 Mac Crap Cleaner (MacCC)
+
+**Less crap. Zero subscriptions. No bullshit.**
+
+[![GitHub release](https://img.shields.io/github/v/release/dan1lazz/mac-crap-cleaner?display_name=tag)](https://github.com/dan1lazz/mac-crap-cleaner/releases)
+[![macOS 11+](https://img.shields.io/badge/macOS-11%2B-000000?logo=apple&logoColor=white)](#macos-version-compatibility)
+[![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white)](#quick-start)
+[![dependencies: 0](https://img.shields.io/badge/dependencies-0-brightgreen)](#quick-start)
+[![license: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+### 🌐 &nbsp;**English**&nbsp; · &nbsp;[Русский](README_RU.md)
+
+**[⬇️ Download the app](https://github.com/dan1lazz/mac-crap-cleaner/releases/latest)** — unzip, double-click, done. No Terminal commands, no `python3` needed.
+
+</div>
 
 A terminal-based maintenance tool for macOS with a text user interface: cache cleaning, detection of "orphans" left behind by removed apps, a deep scan for scattered junk, a startup items manager, and reversible system tweaks.
 
@@ -113,9 +127,20 @@ Previews of both language versions: `dist/preview.html` and `dist/preview-en.htm
 
 ## Quick start
 
-### Option 1: single file (recommended)
+### Option 0: the .app (no Terminal at all)
 
-Download **`dist/maccc_bundle.py`** (109 KB, all modules inside) and run it:
+Download **`Mac-Crap-Cleaner-app.zip`** from the
+[latest release](https://github.com/dan1lazz/mac-crap-cleaner/releases/latest),
+unzip it and double-click **Mac Crap Cleaner.app** — it opens a ready-made
+Terminal window with the interface. If Gatekeeper objects to an unsigned app:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Mac Crap Cleaner.app"
+```
+
+### Option 1: single file
+
+Download **`dist/maccc_bundle.py`** (176 KB, all modules inside) and run it:
 
 ```bash
 chmod +x maccc_bundle.py
@@ -125,7 +150,7 @@ python3 maccc_bundle.py
 ### Option 2: the whole project
 
 ```bash
-cd mac_tweaker
+cd mac_cc
 python3 maccc.py
 ```
 
@@ -139,7 +164,7 @@ echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 maccc
 ```
 
-To verify the install, run `maccc --version`. Expected output: `maccc 2.1.0`.
+To verify the install, run `maccc --version`. Expected output: `maccc 2.2.1`.
 
 ---
 
@@ -387,7 +412,7 @@ The TUI does not run as root, because accidental system damage costs too much. F
 ## Development and tests
 
 ```bash
-cd mac_tweaker
+cd mac_cc
 
 # 1. create the test bench (a fake macOS tree)
 bash tests/make_fake_home.sh /tmp/fake_mac

@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 import plistlib
 import re
+import stat as stat_module
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,7 +39,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .i18n import tr
 from .safety import (Paths, dir_size, human, is_datavault, matches_exclude,
-                     newest_mtime, run, safe_exists, safe_isdir, safe_scandir)
+                     newest_mtime, run, safe_exists, safe_isdir, safe_lstat,
+                     safe_scandir, tree_stats)
 
 VERDICT_ALIVE = "alive"        # программа установлена/запущена
 VERDICT_ORPHAN = "orphan"      # владельца на диске нет → сирота
@@ -433,15 +435,30 @@ class AppRegistry:
         if code != 0 or not out:
             return
         known = {str(a.path) for a in self.apps}
+        lines = []
         for line in out.splitlines():
             line = line.strip()
-            if not line.endswith(".app") or line in known:
-                continue
-            p = Path(line)
-            info = read_bundle_info(p)
-            if info:
-                self.apps.append(info)
+            if line.endswith(".app") and line not in known:
                 known.add(line)
+                lines.append(line)
+        if not lines:
+            return
+        # Info.plist читается у каждого найденного .app — это сотни мелких
+        # I/O-операций; параллелим чтение, реестр дополняем в исходном
+        # порядке (map сохраняет порядок). MACTWEAKER_NO_THREADS=1 → по одному.
+        from .safety import workers
+        n_workers = workers()
+        if n_workers <= 1:
+            for line in lines:
+                info = read_bundle_info(Path(line))
+                if info:
+                    self.apps.append(info)
+            return
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(n_workers, len(lines))) as ex:
+            for info in ex.map(lambda l: read_bundle_info(Path(l)), lines):
+                if info:
+                    self.apps.append(info)
 
     def _from_processes(self) -> None:
         code, out = run(["ps", "-axo", "comm="], timeout=30)
@@ -633,10 +650,22 @@ def scan_leftovers(paths: Paths,
                    stale_days: float = 365.0,
                    excludes: Sequence[str] = (),
                    progress=None) -> List[Leftover]:
-    """Главный сканер сирот."""
+    """Главный сканер сирот.
+
+    Порядок работы: сначала ДЕШЁВАЯ классификация всех кандидатов по имени
+    (без обхода деревьев), затем измеряются размер/mtime только у тех, кто
+    попадёт в отчёт, — данные живых программ и системы не обходятся вовсе.
+    Измерение идёт одним проходом по дереву (tree_stats) и параллельно.
+    Раньше dir_size() и newest_mtime() обходили каждый каталог дважды и для
+    каждого элемента, включая заведомо живые, — на больших ~/Library это
+    давало львиную долю времени сканирования.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from .safety import workers
+
     reg = registry or AppRegistry.build(paths)
-    out: List[Leftover] = []
     roots = search_roots(paths)
+    candidates: List[Tuple[Path, str, str, str, str, dict, Tuple[str, ...]]] = []
 
     for idx, (label, root, kind) in enumerate(roots):
         if progress:
@@ -653,11 +682,7 @@ def scan_leftovers(paths: Paths,
                 continue
             if matches_exclude(p, excludes):
                 continue
-            # сгруппировать plist-файлы предпочтений по владельцу
-            if kind == "bundleid" and name.endswith(".plist") and label == "Preferences":
-                owner = _owner_of(name, kind)
-            else:
-                owner = _owner_of(name, kind)
+            owner = _owner_of(name, kind)
             if not owner:
                 continue
 
@@ -668,34 +693,55 @@ def scan_leftovers(paths: Paths,
             verdict, tpl, args, curated = classify(owner, name, kind, reg, paths,
                                                    full_path=p)
 
-            size, files = dir_size(p) if safe_isdir(p) else (_size(p), 1)
-            if size < min_size:
-                continue
-            mt = newest_mtime(p) if safe_isdir(p) else _mtime(p)
-            age = _age_days(mt)
-            if min_age_days and mt and age < min_age_days:
-                continue
-
-            # «неясно», но не трогали больше года → вероятный остаток
-            if verdict == VERDICT_UNKNOWN and stale_days and age >= stale_days:
-                verdict = VERDICT_STALE
-                tpl = "не использовалось {days} дн.; владелец не определён"
-                args = {"days": int(age)}
-
             if verdict in (VERDICT_ALIVE, VERDICT_TOOL):
                 continue
             if verdict == VERDICT_SYSTEM and not include_system:
                 continue
             if verdict in (VERDICT_UNKNOWN, VERDICT_STALE) and not include_unknown:
                 continue
+            candidates.append((p, label, owner, verdict, tpl, args, curated))
 
-            out.append(Leftover(
-                path=p, source=label, owner=owner, verdict=verdict,
-                evidence_tpl=tpl, evidence_args=args,
-                size=size, files=files, mtime=mt,
-                curated=curated,
-                selected=(verdict == VERDICT_ORPHAN and not _is_system_id(owner)),
-            ))
+    def _measure(c):
+        p = c[0]
+        st = safe_lstat(p)
+        if st is None:
+            return c, 0, 0, 0.0
+        if stat_module.S_ISDIR(st.st_mode):
+            size, files, mt = tree_stats(p)
+        else:
+            size, files, mt = st.st_size, 1, st.st_mtime
+        return c, size, files, mt
+
+    n_workers = workers()
+    if len(candidates) < 4 or n_workers <= 1:
+        measured = map(_measure, candidates)
+    else:
+        with ThreadPoolExecutor(
+                max_workers=max(1, min(n_workers, len(candidates)))) as ex:
+            measured = ex.map(_measure, candidates)
+
+    out: List[Leftover] = []
+    for c, size, files, mt in measured:
+        p, label, owner, verdict, tpl, args, curated = c
+        if size < min_size:
+            continue
+        age = _age_days(mt)
+        if min_age_days and mt and age < min_age_days:
+            continue
+
+        # «неясно», но не трогали больше года → вероятный остаток
+        if verdict == VERDICT_UNKNOWN and stale_days and age >= stale_days:
+            verdict = VERDICT_STALE
+            tpl = "не использовалось {days} дн.; владелец не определён"
+            args = {"days": int(age)}
+
+        out.append(Leftover(
+            path=p, source=label, owner=owner, verdict=verdict,
+            evidence_tpl=tpl, evidence_args=args,
+            size=size, files=files, mtime=mt,
+            curated=curated,
+            selected=(verdict == VERDICT_ORPHAN and not _is_system_id(owner)),
+        ))
 
     if progress:
         progress(len(roots), len(roots), "")

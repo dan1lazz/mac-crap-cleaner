@@ -22,7 +22,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from .safety import (Deleter, Paths, dir_size, expand_glob, human, is_datavault,
                      is_safe, is_traversable, matches_exclude, needs_root,
-                     newest_mtime, run, safe_exists, safe_isdir, safe_scandir)
+                     newest_mtime, run, safe_exists, safe_isdir, safe_lstat,
+                     safe_scandir, tree_stats)
 
 PROFILES = ("basic", "dev", "aggressive")
 
@@ -401,11 +402,11 @@ def scan_junk(paths: Paths,
         for p in t.paths:
             if not safe_exists(p):
                 continue
-            s, c = dir_size(p)
+            # размер, число файлов и mtime — за ОДИН проход по дереву
+            s, c, m = tree_stats(p)
             size += s
             files += c
-            m = newest_mtime(p) if t.kind == "downloads" else 0.0
-            if m > mt:
+            if t.kind == "downloads" and m > mt:
                 mt = m
             live.append(p)
         t.paths, t.size, t.files, t.mtime = live, size, files, mt
@@ -618,10 +619,16 @@ def _match_context(rel: str, name: str, risk_max: int):
 def _add(items: List[DeepItem], p: Path, match, min_size: int,
          cutoff: Optional[float], is_file: bool = False) -> None:
     cat, risk, rule, note = match
-    size, files = (_size_of(p), 1) if is_file else dir_size(p)
+    if is_file:
+        # один lstat вместо двух (_size_of + _mtime_of делали по вызову каждый)
+        st = safe_lstat(p)
+        size, files = (st.st_size if st else 0), 1
+        mt = st.st_mtime if st else 0.0
+    else:
+        # размер, число файлов и mtime — за ОДИН проход по дереву
+        size, files, mt = tree_stats(p)
     if size < min_size:
         return
-    mt = _mtime_of(p) if is_file else newest_mtime(p)
     if cutoff is not None and mt > cutoff and rule != "Finder .DS_Store":
         return
     items.append(DeepItem(path=p, category=cat, rule=rule, note=note,
@@ -630,13 +637,11 @@ def _add(items: List[DeepItem], p: Path, match, min_size: int,
 
 
 def _size_of(p: Path) -> int:
-    from .safety import safe_lstat
     st = safe_lstat(p)
     return st.st_size if st else 0
 
 
 def _mtime_of(p: Path) -> float:
-    from .safety import safe_lstat
     st = safe_lstat(p)
     return st.st_mtime if st else 0.0
 

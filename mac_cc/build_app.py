@@ -29,6 +29,7 @@ from __future__ import annotations
 import plistlib
 import shutil
 import struct
+import subprocess
 import sys
 import zipfile
 import zlib
@@ -41,7 +42,10 @@ APP_DIR = DIST / f"{APP_NAME}.app"
 ZIP_PATH = DIST / "Mac-Crap-Cleaner-app.zip"
 ICON_SRC = ROOT / "tools" / "icon_src.png"
 BUNDLE = DIST / "maccc_bundle.py"
-VERSION = "2.1.0"
+
+# версия — единый источник: mactweaker/__init__.py
+sys.path.insert(0, str(ROOT))
+from mactweaker import __version__ as VERSION  # noqa: E402
 
 COLS, ROWS = 124, 35          # размер окна Terminal, как задумано
 
@@ -264,8 +268,14 @@ INFO_PLIST = {
 
 def build() -> int:
     if not BUNDLE.exists():
-        print("  ! нет бандла — сначала: python3 build_bundle.py")
-        return 1
+        # нет бандла — собираем сами, чтобы сборка была одной командой
+        print("  бандл не найден — собираю: python3 build_bundle.py")
+        rc = subprocess.call([sys.executable, str(ROOT / "build_bundle.py")],
+                             cwd=str(ROOT))
+        if rc != 0 or not BUNDLE.exists():
+            print("  ! не удалось собрать бандл (build_bundle.py rc="
+                  f"{rc})")
+            return 1
 
     contents = APP_DIR / "Contents"
     for sub in ("MacOS", "Resources"):
