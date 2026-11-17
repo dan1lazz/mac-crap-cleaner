@@ -94,8 +94,8 @@ class SystemInfo:
         extras.append(f"Python {self.python}")
         lines.append("  •  ".join(extras))
         if self.full_disk_access is False:
-            lines.append(tr("⚠ нет Full Disk Access: защищённые каталоги "
-                            "(Mail, Messages…) будут пропущены"))
+            lines.append(tr("⚠ нет Full Disk Access: часть каталогов будет "
+                            "пропущена (гайд — клавиша «p»)"))
         return lines
 
 

@@ -900,9 +900,16 @@ class Dialog:
                     cur = (cur + " " + word).strip()
             inner.append(cur)
         inner.append("")
-        opts = "   ".join(
-            painter.color(f" {label} ", t.rev if i == self.cursor else t.dim)
-            for i, (_, label) in enumerate(self.options))
+        # выбранный вариант виден ВСЕГДА: квадратные скобки — структурный
+        # маркер, который не зависит от цвета (NO_COLOR, TERM=dumb, старые
+        # терминалы), а инверсия (t.rev) добавляется поверх, когда цвет есть
+        parts: List[str] = []
+        for i, (_, label) in enumerate(self.options):
+            if i == self.cursor:
+                parts.append(painter.color(f"[ {label} ]", t.rev))
+            else:
+                parts.append(painter.color(f"  {label}  ", t.dim))
+        opts = "   ".join(parts)
         inner.append(pad(opts, w - 4, "center"))
         color = {"warn": t.yellow, "danger": t.red, "info": t.cyan}.get(self.kind, t.cyan)
         box = [painter.color(t.tl + t.h * (w - 2) + t.tr, color)]

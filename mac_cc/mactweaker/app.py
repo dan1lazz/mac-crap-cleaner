@@ -4,6 +4,7 @@ mactweaker.app — экраны псевдографического интер�
 Экраны:
   MainMenu      главное меню
   InfoScreen    состояние системы и диска
+  AccessScreen  Full Disk Access: статус и пошаговый гайд (клавиша «p»)
   CleanerScreen очистка кэшей (basic/dev/aggressive)
   DeepScreen    глубокий скан: хлам внутри проектов и каталогов
   OrphansScreen «сироты» — остатки удалённых программ
@@ -83,6 +84,7 @@ e                включить отмеченное
 u                откатить последнее действие
 i                переключить фильтр/режим
 S                локальные снапшоты APFS (из главного меню и «о системе»)
+p                доступ к диску (Full Disk Access): статус и гайд
 Tab              переключить режим (профиль, жёсткое удаление…)
 ?  F1            эта справка
 Esc  q           назад / выход
@@ -446,6 +448,7 @@ e                  enable selected
 u                undo the last action
 i  p  o            filters, profile, age threshold
 S                local APFS snapshots (from the main menu / system info)
+p  (main menu)   disk access (Full Disk Access): status and guide
 b                  large files (Disk analysis screen)
 Tab                switch delete mode (Trash ↔ rm)
 l                  switch language (Russian / English)
@@ -513,7 +516,7 @@ class MenuItem:
 class MainMenu(Screen):
     title = "главное меню"
     hints = (("↑↓", "выбор"), ("Enter", "открыть"), ("s", "APFS-снапшоты"),
-             ("i", "о системе"), ("l", "язык"))
+             ("i", "о системе"), ("p", "доступ к диску"), ("l", "язык"))
 
     def __init__(self, app: App):
         super().__init__(app)
@@ -650,6 +653,8 @@ class MainMenu(Screen):
             return SnapshotsScreen(self.app)
         if key == "i":
             return InfoScreen(self.app)
+        if key == "p":
+            return AccessScreen(self.app)
         if key == "l":
             nxt = "en" if get_lang() == "ru" else "ru"
             set_lang(nxt, persist=True, paths=self.app.paths)
@@ -729,6 +734,110 @@ class InfoScreen(Screen):
                 tick(1, 1, "")
             self.app.task("Анализ каталогов", work)
             self.app.say(tr("Посчитано: {n} каталогов").format(n=len(self.top)), "ok")
+            return None
+        return super().on_key(key, ctx)
+
+
+# --------------------------------------------------------------------------- #
+#  Доступ к диску (Full Disk Access / TCC)
+# --------------------------------------------------------------------------- #
+
+class AccessScreen(Screen):
+    """Гайд по выдаче Full Disk Access: статус + пошаговая инструкция.
+
+    Права TCC выдаются НЕ файлу .app, а терминалу, в котором крутится
+    программа (Terminal, iTerm…), поэтому экран подсказывает, какое именно
+    приложение нужно включить в настройках, и умеет сам открыть нужный раздел.
+    """
+    title = "доступ к диску"
+    hints = (("o", "открыть настройки"), ("r", "проверить снова"),)
+
+    #: раздел «Полный доступ к диску» в Системных настройках
+    FDA_SETTINGS_URL = ("x-apple.systempreferences:"
+                        "com.apple.preference.security?Privacy_AllFiles")
+
+    def __init__(self, app: App):
+        super().__init__(app)
+        self._fda: Optional[bool] = None
+        self._fda_checked = False
+
+    @staticmethod
+    def terminal_name() -> str:
+        """Кому выдают FDA: терминалу, в котором работает программа."""
+        import os
+        prog = os.environ.get("TERM_PROGRAM", "")
+        return {"Apple_Terminal": "Terminal",
+                "iTerm.app": "iTerm",
+                "vscode": "VS Code",
+                "ghostty": "Ghostty",
+                "WezTerm": "WezTerm",
+                "kitty": "kitty",
+                "alacritty": "Alacritty"}.get(prog) or prog or "Terminal"
+
+    def _status(self) -> Optional[bool]:
+        if not self._fda_checked:
+            self._fda = osprofile.has_full_disk_access(self.app.paths)
+            self._fda_checked = True
+        return self._fda
+
+    def render(self, ctx: RenderContext) -> List[str]:
+        p, t = self.app.p, self.app.theme
+        w = ctx.width
+        fda = self._status()
+        term_name = self.terminal_name()
+        out = [p.hline(w, t.tl, t.tr, tr(" Статус "))]
+        if fda is True:
+            out.append("  " + p.color(
+                tr("✓ Full Disk Access выдан — все каталоги доступны"), t.green))
+        elif fda is False:
+            out.append("  " + p.color(tr("✗ Full Disk Access НЕ выдан"), t.red))
+            out.append("  " + p.color(tr(
+                "Без него часть мусора (Mail, Messages, Safari, кэши ряда "
+                "программ) пропускается, а Finder может запретить работу "
+                "с Корзиной."), t.dim))
+        else:
+            out.append("  " + p.color(tr("? статус определить не удалось"),
+                                      t.dim))
+        out.append(p.hline(w, t.lt, t.rt, tr(" Как выдать доступ ")))
+        steps = [
+            tr("1. Нажмите клавишу «o» — откроется раздел «Полный доступ "
+               "к диску» в Системных настройках."),
+            tr("2. Найдите в списке {term} и включите переключатель рядом "
+               "с ним (если его нет — добавьте через «+»).")
+              .format(term=term_name),
+            tr("3. macOS спросит пароль или Touch ID."),
+            tr("4. Полностью закройте {term} (⌘Q) и запустите "
+               "Mac Crap Cleaner заново — доступ подхватится при запуске.")
+              .format(term=term_name),
+        ]
+        for s in steps:
+            out.append("  " + truncate(s, w - 2))
+        out.append("")
+        out.append("  " + p.color(tr(
+            "Права выдаются не файлу .app, а терминалу, в котором он "
+            "работает: {term}.").format(term=term_name), t.dim))
+        return out
+
+    def on_key(self, key: str, ctx: RenderContext) -> Optional[Screen]:
+        if key == "o":
+            rc, _ = run(["open", self.FDA_SETTINGS_URL], timeout=10)
+            if rc == 0:
+                self.app.say(tr("Системные настройки открыты: включите "
+                                "{term} в списке").format(
+                                    term=self.terminal_name()), "ok")
+            else:
+                self.app.say(tr("Не удалось открыть настройки — откройте "
+                                "вручную: ") + osprofile.fda_hint(), "warn")
+            return None
+        if key == "r":
+            self._fda_checked = False
+            fda = self._status()
+            if fda is True:
+                self.app.say(tr("✓ Full Disk Access выдан"), "ok")
+            elif fda is False:
+                self.app.say(tr("Full Disk Access всё ещё не выдан"), "warn")
+            else:
+                self.app.say(tr("Статус определить не удалось"), "info")
             return None
         return super().on_key(key, ctx)
 

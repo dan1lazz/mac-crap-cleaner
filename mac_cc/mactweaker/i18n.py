@@ -859,6 +859,51 @@ CATALOG: Dict[str, str] = {
     "⚠ Нет прав (TCC): {ex} — выдайте терминалу Полный доступ к диску":
         "⚠ No access (TCC): {ex} — grant the terminal Full Disk Access",
 
+    # ---- v2.2.3: экран «Доступ к диску» ----
+    "⚠ нет Full Disk Access: часть каталогов будет пропущена "
+    "(гайд — клавиша «p»)":
+        "⚠ no Full Disk Access: some folders will be skipped (guide — press “p”)",
+    "доступ к диску": "disk access",
+    " Статус ": " Status ",
+    "✓ Full Disk Access выдан — все каталоги доступны":
+        "✓ Full Disk Access granted — all folders are accessible",
+    "✓ Full Disk Access выдан": "✓ Full Disk Access granted",
+    "✗ Full Disk Access НЕ выдан": "✗ Full Disk Access NOT granted",
+    "Без него часть мусора (Mail, Messages, Safari, кэши ряда "
+    "программ) пропускается, а Finder может запретить работу "
+    "с Корзиной.":
+        "Without it, some junk (Mail, Messages, Safari, caches of some "
+        "apps) is skipped, and Finder may refuse Trash operations.",
+    "? статус определить не удалось": "? could not determine the status",
+    " Как выдать доступ ": " How to grant access ",
+    "1. Нажмите клавишу «o» — откроется раздел «Полный доступ "
+    "к диску» в Системных настройках.":
+        "1. Press “o” — the Full Disk Access pane in System Settings "
+        "will open.",
+    "2. Найдите в списке {term} и включите переключатель рядом "
+    "с ним (если его нет — добавьте через «+»).":
+        "2. Find {term} in the list and turn its switch on (if it is "
+        "missing — add it via “+”).",
+    "3. macOS спросит пароль или Touch ID.":
+        "3. macOS will ask for your password or Touch ID.",
+    "4. Полностью закройте {term} (⌘Q) и запустите "
+    "Mac Crap Cleaner заново — доступ подхватится при запуске.":
+        "4. Fully quit {term} (⌘Q) and start Mac Crap Cleaner again — "
+        "access is picked up at launch.",
+    "Права выдаются не файлу .app, а терминалу, в котором он "
+    "работает: {term}.":
+        "Access is granted not to the .app file but to the terminal it "
+        "runs in: {term}.",
+    "открыть настройки": "open settings",
+    "проверить снова": "check again",
+    "Системные настройки открыты: включите {term} в списке":
+        "System Settings opened: enable {term} in the list",
+    "Не удалось открыть настройки — откройте вручную: ":
+        "Could not open Settings — open it manually: ",
+    "Full Disk Access всё ещё не выдан":
+        "Full Disk Access is still not granted",
+    "Статус определить не удалось": "Could not determine the status",
+
     # ---- v2.2: версионированный профиль ОС ----
     "Профиль ОС: {name} ({major})": "OS profile: {name} ({major})",
     "только Apple Silicon": "Apple Silicon only",
